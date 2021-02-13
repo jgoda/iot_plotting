@@ -1,8 +1,12 @@
-const express = require('express')
-const app = express()
-const port = 3000;
-const Sequelize = require('sequelize')
+const net = require('net');
+let express = require('express');
+let app = express();
 const cors = require('cors');
+
+let http = require('http').createServer(app);
+let io = require('socket.io')(http, { cookie : false, path: '/wsocket/socket.io'} );
+const port = 8000;
+const Sequelize = require('sequelize')
 const sequelize = new Sequelize('postgres://postgres:jyoti123@localhost:5432/node_test',
     {
         dialect: 'postgres',
@@ -16,8 +20,8 @@ const sequelize = new Sequelize('postgres://postgres:jyoti123@localhost:5432/nod
     })
 
 
-const server = require('http').createServer(app);
-const io = require('socket.io')(server);
+//const server = require('http').createServer(app);
+//const io = require('socket.io')(server);
 
 let sensors = sequelize.define('sensors', {
    sensorid: Sequelize.INTEGER,
@@ -39,30 +43,43 @@ sequelize.authenticate().then(() => {
    console.error('Unable to connect to the database:', err);
   });
 
+
+app.get('/', (req, res) => res.sendFile(__dirname + '/index.html'));
+app.get('/data', (req, res) => res.sendFile(__dirname + '/data.txt'));
+
+app.get('/sendMessage', (req, res) => {
+  io.emit('message', { someProperty: 'some value', otherProperty: 'other value' });
+  res.send('Done');
+});
+
 app.use(cors());
 
-var datain ="";
-io.on('data', (data) => async function(data) {
-  var res = datain.concat(data.toString());
-  datain = res;
-  var myObj = JSON.parse(datain);
-  const tm = new Date().getTime();
-  var val = myObj.tempC;
-  var sensorID = myObj.sensorID;
-  var linkKey = "cceceew";
+var datain = "";
+// Create a server object
+const server = net.createServer(async function(socket) {
+  socket.on('data', async function(data) {
+      var res = datain.concat(data.toString());
+      datain = res;
+      if(datain.indexOf("}")>=0)
+      {
+          console.log(datain); //datain={tempC:28.7, tempF:72.5}
+          var myObj = JSON.parse(datain);
+          io.emit('message', myObj);
 
-  try{
-    await sensor_data.create({
-    time: tm, 
-    value: val, 
-    sensorID: id, 
-    linkKey: keylink
+          console.log("tempC from JSON:", myObj.tempC);
+          datain="";
+	  await sensor_data.create({
+            time: tm, 
+            value: myObj.tempC, 
+            sensorID: myObj.sensorID, 
+            linkKey: keylink
+          });
+          console.log('Inserted!');
+      }
   });
-  res.send('Inserted!');
-  } catch (e) {
-    console.log('Error inserting data', e)
-  }
-  
+  console.log('closed connection');
+}).on('error', (err) => {
+  console.error(err);
 });
 
 io.on('connection', function(socket){
@@ -72,8 +89,11 @@ io.on('connection', function(socket){
   });
 });
 
-server.listen(8000);
+// Open server on port 3000
+server.listen(3000, () => {
+  console.log('opened server on', server.address().port);
+});
 
-app.get('/', async  (req, res) => res.send("Hello World!"));
-
-app.listen(port, () => console.log(`Example app listening at http://localhost:${port}`));
+http.listen(port, function(){
+  console.log(`Example app listening on port ${port}!`);
+});
